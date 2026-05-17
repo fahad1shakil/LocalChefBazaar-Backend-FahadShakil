@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -6,7 +7,10 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const app = express();
 
 // Basic Middleware
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'https://localchefbazzar-fahadshakil.netlify.app'],
+  credentials: true
+}));
 app.use(express.json());
 
 // Routes that don't need Database (Health Checks)
@@ -28,68 +32,146 @@ let db;
 let collections = {};
 
 async function getDB() {
-  if (db) return collections;
-
   const uri = process.env.MONGODB_URI;
   if (!uri) {
+    console.error("CRITICAL: MONGODB_URI is missing from .env file");
     throw new Error("MONGODB_URI is not defined in environment variables");
   }
 
-  if (!client) {
-    client = new MongoClient(uri, {
-      serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true,
-      },
-      // Optimization for serverless
-      connectTimeoutMS: 5000,
-      socketTimeoutMS: 30000,
-    });
-    await client.connect();
+  // If already connected, verify connection health
+  if (client && db && collections.users) {
+    try {
+      // Ping the database to verify the connection is active
+      await db.command({ ping: 1 });
+      return collections;
+    } catch (pingError) {
+      console.warn("MongoDB connection stale or lost. Attempting auto-reconnection...", pingError.message);
+      try {
+        await client.close();
+      } catch (closeError) {
+        // Ignore closing errors
+      }
+      client = null;
+      db = null;
+      collections = {};
+    }
   }
 
-  db = client.db("LocalChefBazaar");
-  collections = {
-    users: db.collection("users"),
-    meals: db.collection("meals"),
-    orders: db.collection("orders"),
-    reviews: db.collection("reviews"),
-    roleRequests: db.collection("roleRequests"),
-    favorites: db.collection("favorites"),
-  };
+  try {
+    if (!client) {
+      console.log("Establishing a resilient connection to MongoDB Atlas...");
+      client = new MongoClient(uri, {
+        serverApi: {
+          version: ServerApiVersion.v1,
+          strict: true,
+          deprecationErrors: true,
+        },
+        connectTimeoutMS: 15000,
+        socketTimeoutMS: 45000,
+        maxPoolSize: 10,
+      });
 
-  return collections;
+      // Automatically purge stale caches on disconnect events
+      client.on('close', () => {
+        console.warn("MongoDB connection closed. Purging client cache for auto-reconnection.");
+        client = null;
+        db = null;
+        collections = {};
+      });
+
+      client.on('timeout', () => {
+        console.warn("MongoDB connection timed out. Purging client cache for auto-reconnection.");
+        client = null;
+        db = null;
+        collections = {};
+      });
+
+      await client.connect();
+    }
+
+    db = client.db("LocalChefBazaar");
+    
+    // Verify connection integrity immediately
+    await db.command({ ping: 1 });
+
+    collections = {
+      users: db.collection("users"),
+      meals: db.collection("meals"),
+      orders: db.collection("orders"),
+      reviews: db.collection("reviews"),
+      roleRequests: db.collection("roleRequests"),
+      favorites: db.collection("favorites"),
+    };
+
+    console.log("Successfully connected to MongoDB Atlas");
+    return collections;
+  } catch (err) {
+    console.error("MongoDB Connection Failed:", err.message);
+    client = null; // Reset state for subsequent retries
+    db = null;
+    collections = {};
+    throw err;
+  }
 }
 
 // Global Database Middleware
 app.use(async (req, res, next) => {
+  // Skip DB for health checks
+  if (req.path === '/' || req.path === '/api/health') return next();
+
   try {
     const col = await getDB();
-    req.db = col; // Attach collections to request object
+    req.db = col;
     next();
   } catch (err) {
-    console.error("Critical Database Error:", err.message);
-    res.status(500).send({ 
+    console.error("Database Middleware Error:", err.message);
+    res.status(503).send({ 
       success: false, 
-      message: "Server encountered a database connection issue",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+      message: "Database connection failed. Please check MONGODB_URI in server/.env",
+      error: err.message
     });
   }
 });
 
 // --- Users API ---
 app.post('/users', async (req, res) => {
-  const { users } = req.db;
-  const user = req.body;
-  const query = { email: user.email };
-  const existingUser = await users.findOne(query);
-  if (existingUser) {
-    return res.send({ message: 'user already exists', insertedId: null });
+  try {
+    const { users } = req.db;
+    const user = req.body;
+    
+    if (!user.email) {
+      return res.status(400).send({ success: false, message: 'Email is required' });
+    }
+
+    const query = { email: { $regex: new RegExp(`^${user.email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } };
+    
+    const updateDoc = {
+      $setOnInsert: {
+        name: user.name || '',
+        email: user.email,
+        profileImg: user.profileImg || user.image || '',
+        address: user.address || '',
+        role: user.role || 'user',
+        status: 'active',
+        provider: user.provider || 'google',
+        uid: user.uid || '',
+        createdAt: user.createdAt || new Date().toISOString()
+      }
+    };
+
+    await users.findOneAndUpdate(query, updateDoc, { upsert: true });
+    const savedUser = await users.findOne(query);
+
+    res.send({ 
+      success: true, 
+      data: savedUser, 
+      insertedId: savedUser._id, 
+      message: 'User synchronized successfully' 
+    });
+  } catch (err) {
+    console.error('Error in POST /users:', err.message);
+    res.status(500).send({ success: false, message: err.message });
   }
-  const newUser = { ...user, status: 'active', role: user.role || 'user' };
-  const result = await users.insertOne(newUser);
-  res.send(result);
 });
 
 app.get('/users', async (req, res) => {
@@ -103,13 +185,21 @@ app.get('/all-users', async (req, res) => {
 });
 
 app.get('/users/admin/:email', async (req, res) => {
-  const user = await req.db.users.findOne({ email: req.params.email });
-  res.send({ isAdmin: user?.role === 'admin' });
+  try {
+    const user = await req.db.users.findOne({ email: { $regex: new RegExp(`^${req.params.email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+    res.send({ isAdmin: user?.role === 'admin' });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
 });
 
 app.get('/users/chef/:email', async (req, res) => {
-  const user = await req.db.users.findOne({ email: req.params.email });
-  res.send({ isChef: user?.role === 'chef' });
+  try {
+    const user = await req.db.users.findOne({ email: { $regex: new RegExp(`^${req.params.email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+    res.send({ isChef: user?.role === 'chef' });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
 });
 
 app.get('/users/chefs', async (req, res) => {
@@ -122,17 +212,22 @@ app.get('/users/chefs', async (req, res) => {
 });
 
 app.get('/users/:email', async (req, res) => {
-  const user = await req.db.users.findOne({ email: req.params.email });
-  if (user) {
-    res.send({ success: true, data: user });
-  } else {
-    res.status(404).send({ success: false, message: 'User not found' });
+  try {
+    const user = await req.db.users.findOne({ email: { $regex: new RegExp(`^${req.params.email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+    if (user) {
+      res.send({ success: true, data: user });
+    } else {
+      res.status(404).send({ success: false, message: 'User not found' });
+    }
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
   }
 });
 
 app.get('/check-role/:email', async (req, res) => {
   try {
-    const user = await req.db.users.findOne({ email: { $regex: new RegExp(`^${req.params.email}$`, 'i') } });
+    const escapedEmail = req.params.email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const user = await req.db.users.findOne({ email: { $regex: new RegExp(`^${escapedEmail}$`, 'i') } });
     if (user?.status === 'banned') {
       return res.send({ success: true, role: 'banned', status: 'banned' });
     }
@@ -210,6 +305,18 @@ app.get('/meals/:id', async (req, res) => {
   res.send({ success: true, data: result });
 });
 
+app.put('/meals/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const filter = { _id: new ObjectId(id) };
+    const updatedDoc = { $set: req.body };
+    const result = await req.db.meals.updateOne(filter, updatedDoc);
+    res.send({ success: true, data: result });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
+});
+
 app.delete('/meals/:id', async (req, res) => {
   const result = await req.db.meals.deleteOne({ _id: new ObjectId(req.params.id) });
   res.send({ success: true, data: result });
@@ -219,6 +326,20 @@ app.get('/chef-meals/:email', async (req, res) => {
   try {
     const result = await req.db.meals.find({ userEmail: req.params.email }).toArray();
     res.send({ success: true, data: result });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
+});
+
+// --- Users API ---
+app.get('/users/check/:email', async (req, res) => {
+  try {
+    const user = await req.db.users.findOne({ email: { $regex: new RegExp(`^${req.params.email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+    if (user) {
+      res.send({ success: true, data: user });
+    } else {
+      res.status(404).send({ success: false, message: 'User not found' });
+    }
   } catch (err) {
     res.status(500).send({ success: false, message: err.message });
   }
@@ -235,6 +356,15 @@ app.get('/orders', async (req, res) => {
   res.send({ success: true, data: result });
 });
 
+app.get('/all-orders', async (req, res) => {
+  try {
+    const result = await req.db.orders.find().toArray();
+    res.send({ success: true, data: result });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
+});
+
 app.get('/orders/:email', async (req, res) => {
   const result = await req.db.orders.find({ userEmail: req.params.email }).toArray();
   res.send({ success: true, data: result });
@@ -243,6 +373,15 @@ app.get('/orders/:email', async (req, res) => {
 app.get('/chef-orders/:email', async (req, res) => {
   const result = await req.db.orders.find({ chefEmail: req.params.email }).toArray();
   res.send({ success: true, data: result });
+});
+
+app.get('/user-chef-orders/:email', async (req, res) => {
+  try {
+    const result = await req.db.orders.find({ chefEmail: req.params.email }).toArray();
+    res.send({ success: true, data: result });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
 });
 
 app.patch('/orders/:id', async (req, res) => {
@@ -278,6 +417,15 @@ app.get('/user-reviews/:email', async (req, res) => {
   res.send({ success: true, data: result });
 });
 
+app.get('/chef-reviews/:email', async (req, res) => {
+  try {
+    const result = await req.db.reviews.find({ chefEmail: req.params.email }).toArray();
+    res.send({ success: true, data: result });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
+});
+
 // --- Favorites API ---
 app.post('/favorites', async (req, res) => {
   try {
@@ -306,7 +454,102 @@ app.delete('/favorites/:id', async (req, res) => {
   }
 });
 
+// --- Users & Roles API ---
+app.get('/chef-id/:email', async (req, res) => {
+  try {
+    const user = await req.db.users.findOne({ email: { $regex: new RegExp(`^${req.params.email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+    res.send({ success: true, chefId: user?.chefId || null });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
+});
+
+app.put('/users/demote/:id', async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ success: false, message: 'Invalid ID' });
+    const filter = { _id: new ObjectId(req.params.id) };
+    await req.db.users.updateOne(filter, { $set: { role: 'user' } });
+    res.send({ success: true, message: 'Authority downgraded to standard user' });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
+});
+
+// --- Role Requests API ---
+app.get('/role-requests', async (req, res) => {
+  try {
+    const result = await req.db.roleRequests.find().toArray();
+    res.send({ success: true, data: result });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
+});
+
+app.post('/role-requests', async (req, res) => {
+  try {
+    const result = await req.db.roleRequests.insertOne(req.body);
+    res.send({ success: true, data: result });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
+});
+
+// Alias for inconsistent frontend naming
+app.post('/role-request', async (req, res) => {
+  try {
+    const result = await req.db.roleRequests.insertOne(req.body);
+    res.send({ success: true, data: result });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
+});
+
+app.patch('/role-requests/:id/approve', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const request = await req.db.roleRequests.findOne({ _id: new ObjectId(id) });
+    if (!request) return res.status(404).send({ success: false, message: 'Request not found' });
+
+    // Update user role with case-insensitive email matching
+    const emailFilter = { email: { $regex: new RegExp(`^${request.email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } };
+    const user = await req.db.users.findOne(emailFilter);
+    
+    const updateDoc = { $set: { role: request.requestedRole } };
+    if (request.requestedRole === 'chef' && user && !user.chefId) {
+      updateDoc.$set.chefId = `chef-${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+    
+    await req.db.users.updateOne(emailFilter, updateDoc);
+
+    // Delete the request
+    await req.db.roleRequests.deleteOne({ _id: new ObjectId(id) });
+
+    res.send({ success: true, message: 'Authority status upgraded' });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
+});
+
+app.patch('/role-requests/:id/decline', async (req, res) => {
+  try {
+    await req.db.roleRequests.deleteOne({ _id: new ObjectId(req.params.id) });
+    res.send({ success: true, message: 'Authority request terminated' });
+  } catch (err) {
+    res.status(500).send({ success: false, message: err.message });
+  }
+});
+
 // --- Statistics API ---
+app.get('/revenue-stats', async (req, res) => {
+  try {
+    const orders = await req.db.orders.find({ $or: [{ status: 'delivered' }, { orderStatus: 'delivered' }] }).toArray();
+    const totalRevenue = orders.reduce((sum, order) => sum + (parseFloat(order.price || 0) * (order.quantity || 1)), 0);
+    res.send({ success: true, totalRevenue, data: orders });
+  } catch (error) {
+    res.status(500).send({ success: false, message: error.message });
+  }
+});
+
 app.get('/admin-stats', async (req, res) => {
   try {
     const users = await req.db.users.estimatedDocumentCount();
@@ -342,11 +585,15 @@ app.use((err, req, res, next) => {
 });
 
 // Start Server locally
-if (process.env.NODE_ENV !== 'production') {
-  const port = process.env.PORT || 5000;
-  app.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}`);
-  });
-}
+const port = process.env.PORT || 5000;
+app.listen(port, async () => {
+  console.log(`🚀 LocalChefBazaar Server running on http://localhost:${port}`);
+  console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+  try {
+    await getDB();
+  } catch (err) {
+    console.error("⚠️ Initial database connection attempt failed. Connection will be retried on incoming API requests.");
+  }
+});
 
 module.exports = app;

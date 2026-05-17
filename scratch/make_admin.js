@@ -1,33 +1,66 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const { MongoClient } = require('mongodb');
 
-const uri = "mongodb+srv://LocalChefBazaar:LocalChefBazaar@cluster0.81dwyib.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
-const client = new MongoClient(uri);
+const TARGET_EMAIL = 'fahad10pic@gmail.com';
+const TARGET_ROLE  = 'admin';
 
-async function run() {
+async function makeAdmin() {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    console.error('❌  MONGODB_URI is not defined in your .env file!');
+    process.exit(1);
+  }
+
+  const client = new MongoClient(uri);
   try {
     await client.connect();
-    const database = client.db('LocalChefBazaar');
-    const users = database.collection('users');
+    console.log('✅  Connected to MongoDB Atlas');
 
-    const email = "fahad1shakil@gmail.com";
-    
-    // Check if user exists
-    const user = await users.findOne({ email: email });
-    
-    if (user) {
-      console.log('User found:', user.name, user.role);
-      const result = await users.updateOne(
-        { email: email },
-        { $set: { role: 'admin', status: 'active' } }
-      );
-      console.log(`${result.matchedCount} document(s) matched the query criteria.`);
-      console.log(`${result.modifiedCount} document(s) was/were updated.`);
-      console.log(`User ${email} is now an ADMIN.`);
-    } else {
-      console.log(`User with email ${email} not found. You might need to sign up first on the website.`);
+    const db = client.db('LocalChefBazaar');
+    const users = db.collection('users');
+
+    // 1. Find the user first
+    const existingUser = await users.findOne({ email: { $regex: new RegExp(`^${TARGET_EMAIL}$`, 'i') } });
+
+    if (!existingUser) {
+      console.log(`\n⚠️  No user found with email: ${TARGET_EMAIL}`);
+      console.log('    The user may not have registered yet (users are created on first login).');
+      console.log('\n📋  Current users in the database:');
+      const allUsers = await users.find({}, { projection: { email: 1, role: 1, name: 1 } }).toArray();
+      allUsers.forEach((u, i) => {
+        console.log(`    ${i + 1}. ${u.email} — role: ${u.role || 'user'} — name: ${u.name || 'N/A'}`);
+      });
+      return;
     }
+
+    console.log(`\n👤  Found user:`);
+    console.log(`    Name  : ${existingUser.name || 'N/A'}`);
+    console.log(`    Email : ${existingUser.email}`);
+    console.log(`    Role  : ${existingUser.role || 'user'} → ${TARGET_ROLE}`);
+
+    // 2. Update the role to admin
+    const result = await users.updateOne(
+      { _id: existingUser._id },
+      { $set: { role: TARGET_ROLE } }
+    );
+
+    if (result.modifiedCount === 1) {
+      console.log(`\n🎉  SUCCESS! Role updated to "${TARGET_ROLE}" for ${TARGET_EMAIL}`);
+    } else {
+      console.log(`\n⚠️  No change was made (user may already have the "${TARGET_ROLE}" role).`);
+    }
+
+    // 3. Verify by re-fetching
+    const updated = await users.findOne({ _id: existingUser._id });
+    console.log(`\n🔍  Verification — Current role in DB: "${updated.role}"`);
+
+  } catch (err) {
+    console.error('❌  Error:', err.message);
   } finally {
     await client.close();
+    console.log('\n🔌  Disconnected from MongoDB Atlas');
   }
 }
-run().catch(console.dir);
+
+makeAdmin();

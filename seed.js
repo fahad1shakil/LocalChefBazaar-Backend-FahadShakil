@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const { MongoClient, ServerApiVersion } = require('mongodb');
 
 const uri = process.env.MONGODB_URI;
@@ -40,57 +41,57 @@ async function seed() {
     const top12Meals = [
       {
         foodName: "Old Town Style Mutton Tehari",
-        foodImage: "https://images.unsplash.com/photo-1589302168068-964664d93dc0?q=80&w=2000",
+        foodImage: "https://i.ibb.co.com/5W9tDJdH/33.jpg",
         price: 380, rating: 5.0, ingredients: ["Mutton", "Kalijira Rice"], createdAt: new Date(now.getTime() + 12000)
       },
       {
         foodName: "Dhaka Style Morog Polao",
-        foodImage: "https://images.unsplash.com/photo-1631515243349-e0cb75fb8d3a?q=80&w=2000",
+        foodImage: "https://i.ibb.co.com/C3CBjXF1/33.jpg",
         price: 350, rating: 5.0, ingredients: ["Chicken", "Polao Rice"], createdAt: new Date(now.getTime() + 11000)
       },
       {
         foodName: "Narayanganj Special Beef Bhuna",
-        foodImage: "https://images.unsplash.com/photo-1512058564366-18510be2db19?q=80&w=2000",
+        foodImage: "https://i.ibb.co.com/hq2jwCy/11.avif",
         price: 450, rating: 4.9, ingredients: ["Beef", "Mustard Oil"], createdAt: new Date(now.getTime() + 10000)
       },
       {
         foodName: "Seafood Paella with Saffron",
-        foodImage: "https://images.unsplash.com/photo-1534080564607-c92751f8939f?q=80&w=2000",
+        foodImage: "https://i.ibb.co.com/3mWRvQxw/22.jpg",
         price: 750, rating: 4.8, ingredients: ["Shrimp", "Mussels", "Rice"], createdAt: new Date(now.getTime() + 9000)
       },
       {
         foodName: "Authentic Butter Chicken with Naan",
-        foodImage: "https://images.unsplash.com/photo-1603894584114-f06b6f72233f?q=80&w=2000",
+        foodImage: "https://i.ibb.co.com/My9CbMDH/11aa.jpg",
         price: 420, rating: 4.9, ingredients: ["Chicken", "Cream", "Naan"], createdAt: new Date(now.getTime() + 8000)
       },
       {
         foodName: "Slow-Cooked Lamb Shank",
-        foodImage: "https://images.unsplash.com/photo-1544025162-d76694265947?q=80&w=2000",
+        foodImage: "https://i.ibb.co.com/jcTVMNB/acscasc.jpg",
         price: 1200, rating: 5.0, ingredients: ["Lamb", "Rosemary"], createdAt: new Date(now.getTime() + 7000)
       },
       {
         foodName: "Honey-Glazed Salmon with Asparagus",
-        foodImage: "https://images.unsplash.com/photo-1467003909585-2f8a72700288?q=80&w=2000",
+        foodImage: "https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=800&auto=format&fit=crop&q=80",
         price: 850, rating: 5.0, ingredients: ["Salmon", "Honey"], createdAt: new Date(now.getTime() + 6000)
       },
       {
         foodName: "Thai Green Curry with Jasmine Rice",
-        foodImage: "https://images.unsplash.com/photo-1455619452474-d2be8b1e70cd?q=80&w=2000",
+        foodImage: "https://images.unsplash.com/photo-1455619452474-d2be8b1e70cd?w=800&auto=format&fit=crop&q=80",
         price: 420, rating: 4.9, ingredients: ["Curry", "Rice"], createdAt: new Date(now.getTime() + 5000)
       },
       {
         foodName: "Korean Bulgogi Beef Rice Bowl",
-        foodImage: "https://images.unsplash.com/photo-1590301157890-4810ed352733?q=80&w=2000",
+        foodImage: "https://i.ibb.co.com/ZRBsrn81/77.jpg",
         price: 520, rating: 4.9, ingredients: ["Beef", "Kimchi"], createdAt: new Date(now.getTime() + 4000)
       },
       {
-        foodName: "Smoked Hilsha with Steamed Rice",
-        foodImage: "https://images.unsplash.com/photo-1626777552726-4a6b54c97e46?q=80&w=2000",
+        foodName: "Panta ilish with Steamed Rice",
+        foodImage: "https://i.ibb.co.com/xSsCfBLN/vsdfvsdv.webp",
         price: 650, rating: 5.0, ingredients: ["Hilsha", "Mustard Paste"], createdAt: new Date(now.getTime() + 3000)
       },
       {
-        foodName: "Wild Mushroom & Thyme Risotto",
-        foodImage: "https://images.unsplash.com/photo-1476124369491-e7addf5db371?q=80&w=2000",
+        foodName: "Wild Spicy Garlic Mushroom ",
+        foodImage: "https://i.ibb.co.com/7t4NPqbv/dfsbvsdfbsf.jpg",
         price: 480, rating: 4.9, ingredients: ["Rice", "Mushrooms"], createdAt: new Date(now.getTime() + 2000)
       },
       {
@@ -107,7 +108,7 @@ async function seed() {
     const bestDrinks = [
       {
         foodName: "Caramel Macchiato",
-        foodImage: "https://images.unsplash.com/photo-1485808191679-5f86510681a2?q=80&w=2000",
+        foodImage: "https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=800&auto=format&fit=crop&q=80",
         price: 240, rating: 5.0, ingredients: ["Espresso", "Caramel"], createdAt: new Date(now.getTime() - 1000)
       },
       {
@@ -117,12 +118,12 @@ async function seed() {
       },
       {
         foodName: "Fresh Mint Lemonade",
-        foodImage: "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?q=80&w=2000",
+        foodImage: "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=800&auto=format&fit=crop&q=80",
         price: 150, rating: 4.8, ingredients: ["Lemon", "Mint"], createdAt: new Date(now.getTime() - 3000)
       },
       {
         foodName: "Signature Hot Chocolate",
-        foodImage: "https://images.unsplash.com/photo-1544787210-2211d40a5165?q=80&w=2000",
+        foodImage: "https://i.ibb.co.com/QFX9yxn7/1111.webp",
         price: 220, rating: 4.9, ingredients: ["Chocolate", "Milk"], createdAt: new Date(now.getTime() - 4000)
       }
     ].map(m => ({
@@ -134,12 +135,12 @@ async function seed() {
     const rest = [
       {
         foodName: "High-Protein Chicken Salad",
-        foodImage: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=2000",
+        foodImage: "https://i.ibb.co.com/wFz88VNk/55.jpg",
         price: 280, rating: 4.8, ingredients: ["Chicken", "Kale"], createdAt: new Date(now.getTime() - 10000)
       },
       {
         foodName: "Mediterranean Falafel Wrap",
-        foodImage: "https://images.unsplash.com/photo-1593001874117-c99c4edb8150?q=80&w=2000",
+        foodImage: "https://i.ibb.co.com/M5Qrhp7Y/99.webp",
         price: 180, rating: 4.6, ingredients: ["Chickpeas", "Flatbread"], createdAt: new Date(now.getTime() - 11000)
       }
     ].map(m => ({
