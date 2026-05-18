@@ -13,7 +13,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Routes that don't need Database (Health Checks)
+// Routes that don't need Database ( = Health Checks)
 app.get('/', (req, res) => {
   res.send('Local Chef Bazaar Server is running - System OK');
 });
@@ -578,7 +578,7 @@ app.get('/public-stats', async (req, res) => {
   }
 });
 
-// Error Handling Middleware
+// Error Handling Middleware = 
 app.use((err, req, res, next) => {
   console.error("Unhandled Server Error:", err);
   res.status(500).send({ success: false, message: "Internal Server Error" });
