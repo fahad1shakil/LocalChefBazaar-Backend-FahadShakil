@@ -8,7 +8,7 @@ const app = express();
 
 // Basic Middleware
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'https://localchefbazzar-fahadshakil.netlify.app'],
+  origin: "*",
   credentials: true
 }));
 app.use(express.json());
